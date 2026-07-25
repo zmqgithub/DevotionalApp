@@ -2,25 +2,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # Application
     APP_NAME: str = "Devotional App"
     APP_ENV: str = "development"
-    DEBUG: bool = True
-
-    # Database
     DATABASE_URL: str
-
-    # JWT
-    JWT_SECRET_KEY: str
+    JWT_SECRET_KEY: str= "dev-secret-key-change-this"
     JWT_ALGORITHM: str = "HS256"
-
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    DEBUG: bool = True
 
     model_config = SettingsConfigDict(
         env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
         extra="ignore",
     )
 

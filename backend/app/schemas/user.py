@@ -32,14 +32,16 @@ class UserStatusUpdate(BaseModel):
 class UserResponse(BaseModel):
     id: int
     name: str
-    email: EmailStr
-    profile_image_url: str | None
+    email: str
+    profile_image_url: str | None = None
     is_active: bool
     is_deleted: bool
     created_at: datetime
     updated_at: datetime
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True
+    )
 
 
 class UserListResponse(BaseModel):
