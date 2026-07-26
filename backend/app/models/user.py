@@ -1,7 +1,8 @@
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Integer, String, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.ext.associationproxy import association_proxy
 
 from app.core.database import Base
 
@@ -60,4 +61,17 @@ class User(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+    # Direct relationship to UserRole association records
+    user_roles = relationship(
+        "UserRole",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+    # Convenient access to Role objects
+    roles = association_proxy(
+        "user_roles",
+        "role",
     )

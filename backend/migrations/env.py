@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.core.database import Base
 
 # Import all models here so Alembic can detect them.
-from app.models.user import User
+from app.models import User, Role, UserRole
 
 
 config = context.config
