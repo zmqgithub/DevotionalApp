@@ -1,8 +1,8 @@
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Integer, String, func
-from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.ext.associationproxy import association_proxy
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 
@@ -63,7 +63,7 @@ class User(Base):
         onupdate=func.now(),
     )
 
-    # Direct relationship to UserRole association records
+    # Direct relationship to UserRole records
     user_roles = relationship(
         "UserRole",
         back_populates="user",
@@ -74,4 +74,5 @@ class User(Base):
     roles = association_proxy(
         "user_roles",
         "role",
+        creator=lambda role: UserRole(role=role),
     )

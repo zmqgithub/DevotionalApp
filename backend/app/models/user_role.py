@@ -11,19 +11,13 @@ class UserRole(Base):
 
     user_id: Mapped[int] = mapped_column(
         Integer,
-        ForeignKey(
-            "users.id",
-            ondelete="CASCADE",
-        ),
+        ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
     )
 
     role_id: Mapped[int] = mapped_column(
         Integer,
-        ForeignKey(
-            "roles.id",
-            ondelete="CASCADE",
-        ),
+        ForeignKey("roles.id", ondelete="CASCADE"),
         primary_key=True,
     )
 

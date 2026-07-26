@@ -1,30 +1,39 @@
 from datetime import datetime
 
-from sqlalchemy import String, Text, DateTime, func
+from sqlalchemy import DateTime, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from sqlalchemy.ext.associationproxy import association_proxy
-from sqlalchemy.orm import relationship
+from pydantic import BaseModel, ConfigDict
 
+class AssignRoleRequest(BaseModel):
+    user_id: int
+    role_id: int
+
+
+class RoleResponse(BaseModel):
+    id: int
+    name: str
+    description: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 class Role(Base):
     __tablename__ = "roles"
 
     id: Mapped[int] = mapped_column(
+        Integer,
         primary_key=True,
-        index=True,
     )
 
     name: Mapped[str] = mapped_column(
         String(50),
         unique=True,
         nullable=False,
-        index=True,
     )
 
     description: Mapped[str | None] = mapped_column(
-        Text,
+        String(255),
         nullable=True,
     )
 
@@ -45,9 +54,4 @@ class Role(Base):
         "UserRole",
         back_populates="role",
         cascade="all, delete-orphan",
-    )
-
-    users = association_proxy(
-        "user_roles",
-        "user",
     )

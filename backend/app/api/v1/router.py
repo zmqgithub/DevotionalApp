@@ -1,9 +1,12 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import health
-from app.api.v1.endpoints import users
-from app.api.v1.endpoints import auth
-from app.api.v1.endpoints import admin
+from app.api.v1.endpoints import (
+    health,
+    auth,
+    users,
+    admin,
+    roles,
+)
 
 api_router = APIRouter()
 
@@ -21,4 +24,8 @@ api_router.include_router(
 
 api_router.include_router(
     admin.router
+)
+
+api_router.include_router(
+    roles.router
 )
