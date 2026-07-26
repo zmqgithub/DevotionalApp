@@ -9,9 +9,10 @@ from app.schemas.user import (
     UserResponse,
     UserStatusUpdate,
     UserUpdate,
+    AdminUserUpdate,
+    UserProfileUpdate,
 )
 from app.services.user_service import (
-    change_password,
     create_user,
     delete_user,
     get_user_by_email,
@@ -20,8 +21,17 @@ from app.services.user_service import (
     soft_delete_user,
     update_user,
     update_user_status,
+    admin_update_user,
+    update_my_profile,
+    change_password,
+
 )
 
+from app.api.v1.dependencies import (
+    get_current_user,
+    require_admin,
+)
+from app.models.user import User
 
 router = APIRouter(
     prefix="/users",
@@ -258,3 +268,118 @@ def change_user_status(
         user,
         status_data.is_active,
     )
+
+@router.get(
+    "/me",
+    response_model=UserResponse,
+)
+def get_my_profile(
+    current_user: User = Depends(get_current_user),
+):
+    return current_user
+
+@router.put(
+    "/me",
+    response_model=UserResponse,
+)
+def update_my_profile_endpoint(
+    data: UserProfileUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return update_my_profile(
+        db,
+        current_user,
+        data,
+    )
+
+@router.get(
+    "",
+)
+def list_users(
+    page: int = Query(
+        1,
+        ge=1,
+    ),
+    page_size: int = Query(
+        20,
+        ge=1,
+        le=100,
+    ),
+    search: str | None = None,
+    is_active: bool | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    users, total, total_pages = get_users(
+        db=db,
+        page=page,
+        page_size=page_size,
+        search=search,
+        is_active=is_active,
+    )
+
+    return {
+        "data": users,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+    }
+
+@router.get(
+    "/{user_id}",
+    response_model=UserResponse,
+)
+def get_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    return get_user_by_id(
+        db,
+        user_id,
+    )
+
+@router.patch(
+    "/{user_id}/status",
+    response_model=UserResponse,
+)
+def change_user_status(
+    user_id: int,
+    data: UserStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    user = get_user_by_id(
+        db,
+        user_id,
+    )
+
+    return update_user_status(
+        db,
+        user,
+        data.is_active,
+    )
+
+@router.delete(
+    "/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    user = get_user_by_id(
+        db,
+        user_id,
+    )
+
+    soft_delete_user(
+        db,
+        user,
+    )
+
+    return None
+
