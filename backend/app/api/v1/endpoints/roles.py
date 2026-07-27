@@ -124,61 +124,61 @@ def delete_existing_role(
     return None
 
 
-# ============================================================
-# ASSIGN ROLE TO USER
-# ============================================================
-
-@router.post(
-    "/users/{user_id}/{role_id}",
-)
-def assign_role(
-    user_id: int,
-    role_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
-):
-    user = assign_role_to_user(
-        db,
-        user_id,
-        role_id,
-    )
-
-    return {
-        "message": "Role assigned successfully",
-        "user_id": user.id,
-        "email": user.email,
-        "roles": [
-            role.name
-            for role in user.roles
-        ],
-    }
-
-
-# ============================================================
-# REMOVE ROLE FROM USER
-# ============================================================
-
-@router.delete(
-    "/users/{user_id}/{role_id}",
-)
-def remove_role(
-    user_id: int,
-    role_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
-):
-    user = remove_role_from_user(
-        db,
-        user_id,
-        role_id,
-    )
-
-    return {
-        "message": "Role removed successfully",
-        "user_id": user.id,
-        "email": user.email,
-        "roles": [
-            role.name
-            for role in user.roles
-        ],
-    }
+# # ============================================================
+# # ASSIGN ROLE TO USER
+# # ============================================================
+#
+# @router.post(
+#     "/users/{user_id}/{role_id}",
+# )
+# def assign_role(
+#     user_id: int,
+#     role_id: int,
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(require_admin),
+# ):
+#     user = assign_role_to_user(
+#         db,
+#         user_id,
+#         role_id,
+#     )
+#
+#     return {
+#         "message": "Role assigned successfully",
+#         "user_id": user.id,
+#         "email": user.email,
+#         "roles": [
+#             role.name
+#             for role in user.roles
+#         ],
+#     }
+#
+#
+# # ============================================================
+# # REMOVE ROLE FROM USER
+# # ============================================================
+#
+# @router.delete(
+#     "/users/{user_id}/{role_id}",
+# )
+# def remove_role(
+#     user_id: int,
+#     role_id: int,
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(require_admin),
+# ):
+#     user = remove_role_from_user(
+#         db,
+#         user_id,
+#         role_id,
+#     )
+#
+#     return {
+#         "message": "Role removed successfully",
+#         "user_id": user.id,
+#         "email": user.email,
+#         "roles": [
+#             role.name
+#             for role in user.roles
+#         ],
+#     }

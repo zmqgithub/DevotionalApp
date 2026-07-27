@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.models.user import User
+
 from app.schemas.user import (
     ChangePasswordRequest,
     UserCreate,
@@ -9,35 +11,38 @@ from app.schemas.user import (
     UserResponse,
     UserStatusUpdate,
     UserUpdate,
-    AdminUserUpdate,
     UserProfileUpdate,
 )
+
 from app.services.user_service import (
     create_user,
-    delete_user,
     get_user_by_email,
     get_user_by_id,
     get_users,
-    soft_delete_user,
     update_user,
     update_user_status,
-    admin_update_user,
     update_my_profile,
     change_password,
-
+    soft_delete_user,
 )
 
 from app.api.v1.dependencies import (
     get_current_user,
     require_admin,
+    require_any_role,
 )
-from app.models.user import User
+
 
 router = APIRouter(
     prefix="/users",
     tags=["Users"],
 )
 
+
+# ============================================================
+# CREATE USER
+# ADMIN + MODERATOR + USER
+# ============================================================
 
 @router.post(
     "",
@@ -47,8 +52,8 @@ router = APIRouter(
 def create_new_user(
     user_data: UserCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-
     existing_user = get_user_by_email(
         db,
         user_data.email,
@@ -65,6 +70,42 @@ def create_new_user(
         user_data,
     )
 
+
+# ============================================================
+# MY PROFILE
+# ADMIN + MODERATOR + USER
+# ============================================================
+
+@router.get(
+    "/me",
+    response_model=UserResponse,
+)
+def get_my_profile(
+    current_user: User = Depends(get_current_user),
+):
+    return current_user
+
+
+@router.put(
+    "/me",
+    response_model=UserResponse,
+)
+def update_my_profile_endpoint(
+    data: UserProfileUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return update_my_profile(
+        db,
+        current_user,
+        data,
+    )
+
+
+# ============================================================
+# LIST USERS
+# ADMIN + MODERATOR
+# ============================================================
 
 @router.get(
     "",
@@ -88,8 +129,10 @@ def get_all_users(
         None,
     ),
     db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_any_role("ADMIN", "MODERATOR")
+    ),
 ):
-
     users, total, total_pages = get_users(
         db=db,
         page=page,
@@ -107,6 +150,11 @@ def get_all_users(
     )
 
 
+# ============================================================
+# GET SINGLE USER
+# ADMIN + MODERATOR
+# ============================================================
+
 @router.get(
     "/{user_id}",
     response_model=UserResponse,
@@ -114,8 +162,10 @@ def get_all_users(
 def get_single_user(
     user_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_any_role("ADMIN", "MODERATOR")
+    ),
 ):
-
     user = get_user_by_id(
         db,
         user_id,
@@ -130,6 +180,11 @@ def get_single_user(
     return user
 
 
+# ============================================================
+# ADMIN UPDATE USER
+# ADMIN ONLY
+# ============================================================
+
 @router.put(
     "/{user_id}",
     response_model=UserResponse,
@@ -138,8 +193,8 @@ def update_existing_user(
     user_id: int,
     user_data: UserUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
 ):
-
     user = get_user_by_id(
         db,
         user_id,
@@ -174,6 +229,11 @@ def update_existing_user(
     )
 
 
+# ============================================================
+# DELETE USER
+# ADMIN ONLY
+# ============================================================
+
 @router.delete(
     "/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -181,8 +241,8 @@ def update_existing_user(
 def delete_existing_user(
     user_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
 ):
-
     user = get_user_by_id(
         db,
         user_id,
@@ -194,12 +254,18 @@ def delete_existing_user(
             detail="User not found",
         )
 
-    delete_user(
+    soft_delete_user(
         db,
         user,
     )
 
     return None
+
+
+# ============================================================
+# CHANGE USER PASSWORD
+# ADMIN ONLY
+# ============================================================
 
 @router.put(
     "/{user_id}/password",
@@ -208,22 +274,20 @@ def change_user_password(
     user_id: int,
     password_data: ChangePasswordRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
 ):
-
     user = get_user_by_id(
         db,
         user_id,
     )
 
     if not user:
-
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
         )
 
     try:
-
         change_password(
             db,
             user,
@@ -231,15 +295,20 @@ def change_user_password(
         )
 
     except ValueError as error:
-
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(error),
         )
 
     return {
         "message": "Password changed successfully"
     }
+
+
+# ============================================================
+# CHANGE USER STATUS
+# ADMIN ONLY
+# ============================================================
 
 @router.patch(
     "/{user_id}/status",
@@ -249,17 +318,16 @@ def change_user_status(
     user_id: int,
     status_data: UserStatusUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
 ):
-
     user = get_user_by_id(
         db,
         user_id,
     )
 
     if not user:
-
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
         )
 
@@ -268,118 +336,3 @@ def change_user_status(
         user,
         status_data.is_active,
     )
-
-@router.get(
-    "/me",
-    response_model=UserResponse,
-)
-def get_my_profile(
-    current_user: User = Depends(get_current_user),
-):
-    return current_user
-
-@router.put(
-    "/me",
-    response_model=UserResponse,
-)
-def update_my_profile_endpoint(
-    data: UserProfileUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    return update_my_profile(
-        db,
-        current_user,
-        data,
-    )
-
-@router.get(
-    "",
-)
-def list_users(
-    page: int = Query(
-        1,
-        ge=1,
-    ),
-    page_size: int = Query(
-        20,
-        ge=1,
-        le=100,
-    ),
-    search: str | None = None,
-    is_active: bool | None = None,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
-):
-    users, total, total_pages = get_users(
-        db=db,
-        page=page,
-        page_size=page_size,
-        search=search,
-        is_active=is_active,
-    )
-
-    return {
-        "data": users,
-        "page": page,
-        "page_size": page_size,
-        "total": total,
-        "total_pages": total_pages,
-    }
-
-@router.get(
-    "/{user_id}",
-    response_model=UserResponse,
-)
-def get_user(
-    user_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
-):
-    return get_user_by_id(
-        db,
-        user_id,
-    )
-
-@router.patch(
-    "/{user_id}/status",
-    response_model=UserResponse,
-)
-def change_user_status(
-    user_id: int,
-    data: UserStatusUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
-):
-    user = get_user_by_id(
-        db,
-        user_id,
-    )
-
-    return update_user_status(
-        db,
-        user,
-        data.is_active,
-    )
-
-@router.delete(
-    "/{user_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-def delete_user(
-    user_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
-):
-    user = get_user_by_id(
-        db,
-        user_id,
-    )
-
-    soft_delete_user(
-        db,
-        user,
-    )
-
-    return None
-
