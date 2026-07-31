@@ -60,8 +60,21 @@ def get_users(
 
     return users, total, total_pages
 
-
 def get_user_by_id(
+    db: Session,
+    user_id: int,
+) -> User | None:
+
+    return (
+        db.query(User)
+        .filter(
+            User.id == user_id,
+            User.is_deleted.is_(False),
+        )
+        .first()
+    )
+
+""" def get_user_by_id(
     db: Session,
     user_id: int,
 ):
@@ -80,7 +93,7 @@ def get_user_by_id(
             detail="User not found",
         )
 
-    return user
+    return user """
 
 
 def get_user_by_email(
@@ -128,8 +141,61 @@ def create_user(
 
     return user
 
-
 def update_user(
+    db: Session,
+    user_id: int,
+    user_data,
+) -> User:
+
+    # IMPORTANT:
+    # user_id must be an integer, never a User object.
+    if isinstance(user_id, User):
+        user_id = user_id.id
+
+    user = get_user_by_id(
+        db=db,
+        user_id=user_id,
+    )
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    # Get only fields actually supplied by the request
+    update_data = user_data.model_dump(
+        exclude_unset=True,
+    )
+
+    # Never allow these fields to be changed through this endpoint
+    protected_fields = {
+        "id",
+        "password_hash",
+        "is_deleted",
+        "created_at",
+        "updated_at",
+    }
+
+    for field, value in update_data.items():
+
+        if field in protected_fields:
+            continue
+
+        if hasattr(user, field):
+            setattr(
+                user,
+                field,
+                value,
+            )
+
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    return user
+
+""" def update_user(
     db: Session,
     user_id: int,
     data: UserUpdate,
@@ -165,7 +231,7 @@ def update_user(
     db.commit()
     db.refresh(user)
 
-    return user
+    return user """
 
 
 def change_password(

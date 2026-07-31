@@ -41,7 +41,7 @@ router = APIRouter(
 
 # ============================================================
 # CREATE USER
-# ADMIN + MODERATOR + USER
+# ADMIN ONLY
 # ============================================================
 
 @router.post(
@@ -52,8 +52,15 @@ router = APIRouter(
 def create_new_user(
     user_data: UserCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
+    """
+    Create a new user.
+
+    Permission:
+        ADMIN only
+    """
+
     existing_user = get_user_by_email(
         db,
         user_data.email,
@@ -72,7 +79,7 @@ def create_new_user(
 
 
 # ============================================================
-# MY PROFILE
+# GET MY PROFILE
 # ADMIN + MODERATOR + USER
 # ============================================================
 
@@ -83,8 +90,22 @@ def create_new_user(
 def get_my_profile(
     current_user: User = Depends(get_current_user),
 ):
+    """
+    Get the currently authenticated user's own profile.
+
+    Permission:
+        ADMIN
+        MODERATOR
+        USER
+    """
+
     return current_user
 
+
+# ============================================================
+# UPDATE MY PROFILE
+# ADMIN + MODERATOR + USER
+# ============================================================
 
 @router.put(
     "/me",
@@ -95,6 +116,15 @@ def update_my_profile_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """
+    Update the currently authenticated user's own profile.
+
+    Permission:
+        ADMIN
+        MODERATOR
+        USER
+    """
+
     return update_my_profile(
         db,
         current_user,
@@ -130,9 +160,20 @@ def get_all_users(
     ),
     db: Session = Depends(get_db),
     current_user: User = Depends(
-        require_any_role("ADMIN", "MODERATOR")
+        require_any_role(
+            "ADMIN",
+            "MODERATOR",
+        )
     ),
 ):
+    """
+    List all users.
+
+    Permission:
+        ADMIN
+        MODERATOR
+    """
+
     users, total, total_pages = get_users(
         db=db,
         page=page,
@@ -163,9 +204,20 @@ def get_single_user(
     user_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(
-        require_any_role("ADMIN", "MODERATOR")
+        require_any_role(
+            "ADMIN",
+            "MODERATOR",
+        )
     ),
 ):
+    """
+    Get a specific user by ID.
+
+    Permission:
+        ADMIN
+        MODERATOR
+    """
+
     user = get_user_by_id(
         db,
         user_id,
@@ -181,7 +233,7 @@ def get_single_user(
 
 
 # ============================================================
-# ADMIN UPDATE USER
+# UPDATE USER
 # ADMIN ONLY
 # ============================================================
 
@@ -195,6 +247,13 @@ def update_existing_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
+    """
+    Update another user's account.
+
+    Permission:
+        ADMIN only
+    """
+
     user = get_user_by_id(
         db,
         user_id,
@@ -223,9 +282,9 @@ def update_existing_user(
             )
 
     return update_user(
-        db,
-        user,
-        user_data,
+        db=db,
+        user_id=user_id,
+        user_data=user_data,
     )
 
 
@@ -243,6 +302,13 @@ def delete_existing_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
+    """
+    Soft delete a user.
+
+    Permission:
+        ADMIN only
+    """
+
     user = get_user_by_id(
         db,
         user_id,
@@ -276,6 +342,13 @@ def change_user_password(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
+    """
+    Change another user's password.
+
+    Permission:
+        ADMIN only
+    """
+
     user = get_user_by_id(
         db,
         user_id,
@@ -301,7 +374,7 @@ def change_user_password(
         )
 
     return {
-        "message": "Password changed successfully"
+        "message": "Password changed successfully",
     }
 
 
@@ -320,6 +393,13 @@ def change_user_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
+    """
+    Activate or deactivate a user.
+
+    Permission:
+        ADMIN only
+    """
+
     user = get_user_by_id(
         db,
         user_id,
