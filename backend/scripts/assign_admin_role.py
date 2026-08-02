@@ -1,6 +1,6 @@
 from app.core.database import SessionLocal
-from app.models.user import User
-from app.models.role import Role
+from app.modules.users.model import  User
+from app.modules.roles.model import Role
 
 
 ADMIN_EMAIL = "admin@devotionalapp.com"

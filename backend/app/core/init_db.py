@@ -1,5 +1,5 @@
-from app.core.database import Base, engine
-from app.models.user import User
+from app.db.session import Base, engine
+from app.modules.users.model import  User
 
 
 def init_db():

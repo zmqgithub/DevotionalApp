@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
 from app.core.security import hash_password
-from app.models.user import User
+from app.modules.users.model import  User
 
 
 def create_superadmin():

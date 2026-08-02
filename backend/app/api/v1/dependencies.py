@@ -1,300 +1,156 @@
+from typing import Optional, List
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
+from app.db.session import get_db
+from app.modules.users.service import UserService
+from app.modules.users.model import User
+from app.modules.permissions.service import PermissionService
+from app.core.security import verify_access_token
+from app.core.exceptions import AuthenticationError
 
-from app.core.database import get_db
-from app.core.security import decode_token
-from app.models.user import User
+security = HTTPBearer()
 
 
-oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl="/api/v1/auth/login"
-)
-
-
-# ============================================================
-# GET CURRENT AUTHENTICATED USER
-# ============================================================
-
-def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db),
+async def get_current_user(
+        credentials: HTTPAuthorizationCredentials = Depends(security),
+        db: Session = Depends(get_db)
 ) -> User:
-    """
-    Get the currently authenticated user from JWT access token.
+    """Get current authenticated user"""
+    token = credentials.credentials
 
-    Any authenticated active user can pass this dependency.
-
-    Roles:
-    - ADMIN
-    - MODERATOR
-    - USER
-    """
-
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={
-            "WWW-Authenticate": "Bearer",
-        },
-    )
-
-    try:
-        payload = decode_token(token)
-
-        user_id = payload.get("sub")
-        token_type = payload.get("type")
-
-        # Token must contain user ID
-        if user_id is None:
-            raise credentials_exception
-
-        # Only access tokens are accepted
-        if token_type != "access":
-            raise credentials_exception
-
-        user_id = int(user_id)
-
-    except (ValueError, TypeError):
-        raise credentials_exception
-
-    user = (
-        db.query(User)
-        .filter(
-            User.id == user_id,
-            User.is_deleted.is_(False),
+    # Verify token
+    payload = verify_access_token(token)
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
         )
-        .first()
-    )
 
-    if user is None:
-        raise credentials_exception
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-    # Inactive users cannot access protected APIs
+    user_service = UserService(db)
+    user = user_service.get_by_id(int(user_id))
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is inactive",
+            detail="User account is inactive"
         )
 
     return user
 
 
-# ============================================================
-# GET CURRENT USER ROLES
-# ============================================================
-
-def get_user_roles(
-    current_user: User = Depends(get_current_user),
-) -> set[str]:
-    """
-    Return all roles assigned to the current user.
-
-    Example:
-        {"ADMIN"}
-        {"MODERATOR"}
-        {"USER"}
-
-    The role names are normalized to uppercase.
-    """
-
-    return {
-        role.name.upper()
-        for role in current_user.roles
-    }
-
-
-# ============================================================
-# GENERIC ROLE CHECKER
-# ============================================================
-
-def require_any_role(*allowed_roles: str):
-    """
-    Allow access when the current user has at least one
-    of the specified roles.
-
-    Example:
-
-        Depends(require_any_role("ADMIN", "MODERATOR"))
-
-    Allows:
-        ADMIN
-        MODERATOR
-
-    Blocks:
-        USER
-    """
-
-    normalized_roles = {
-        role.upper()
-        for role in allowed_roles
-    }
-
-    def role_checker(
-        current_user: User = Depends(get_current_user),
-    ) -> User:
-
-        user_roles = {
-            role.name.upper()
-            for role in current_user.roles
-        }
-
-        if not user_roles.intersection(normalized_roles):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Insufficient permissions",
-            )
-
-        return current_user
-
-    return role_checker
-
-
-# ============================================================
-# ADMIN ONLY
-# ============================================================
-
-def require_admin(
-    current_user: User = Depends(get_current_user),
+async def get_current_active_user(
+        current_user: User = Depends(get_current_user)
 ) -> User:
-    """
-    ADMIN ONLY.
-
-    Permission hierarchy:
-
-        ADMIN
-          ├── Admin APIs
-          ├── Moderator APIs
-          ├── User APIs
-          └── Own Profile APIs
-
-    Only users with ADMIN role can pass this dependency.
-    """
-
-    user_roles = {
-        role.name.upper()
-        for role in current_user.roles
-    }
-
-    if "ADMIN" not in user_roles:
+    """Get current active user"""
+    if not current_user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
+            detail="User account is inactive"
+        )
+    return current_user
+
+
+async def get_current_superuser(
+        current_user: User = Depends(get_current_user)
+) -> User:
+    """Get current superuser"""
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Superuser privileges required"
+        )
+    return current_user
+
+
+async def require_admin(
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+) -> User:
+    """Require admin role"""
+    # Check if user has admin role
+    user_roles = [ur.role.name for ur in current_user.user_roles]
+
+    if "admin" not in user_roles and "super_admin" not in user_roles and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required"
         )
 
     return current_user
 
 
-# ============================================================
-# ADMIN + MODERATOR
-# ============================================================
+async def require_role(role_name: str):
+    """Create a dependency that requires a specific role"""
 
-def require_moderator(
-    current_user: User = Depends(get_current_user),
-) -> User:
-    """
-    ADMIN + MODERATOR.
-
-    Permission hierarchy:
-
-        ADMIN
-          └── Moderator APIs
-
-        MODERATOR
-          └── Moderator APIs
-
-    ADMIN also has access because ADMIN inherits
-    all lower-level permissions.
-    """
-
-    user_roles = {
-        role.name.upper()
-        for role in current_user.roles
-    }
-
-    if not (
-        "ADMIN" in user_roles
-        or "MODERATOR" in user_roles
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Moderator access required",
-        )
-
-    return current_user
-
-
-# ============================================================
-# ANY AUTHENTICATED USER
-# ============================================================
-
-def require_user(
-    current_user: User = Depends(get_current_user),
-) -> User:
-    """
-    Any authenticated active user.
-
-    Allows:
-        ADMIN
-        MODERATOR
-        USER
-
-    Permission hierarchy:
-
-        ADMIN
-          └── User APIs
-
-        MODERATOR
-          └── User APIs
-
-        USER
-          └── User APIs
-    """
-
-    return current_user
-
-
-# ============================================================
-# EXACT ROLE CHECKER
-# ============================================================
-
-def require_role(required_role: str):
-    """
-    Require an exact role.
-
-    This does NOT implement role hierarchy.
-
-    Example:
-
-        Depends(require_role("ADMIN"))
-
-    Allows:
-        ADMIN
-
-    Blocks:
-        MODERATOR
-        USER
-    """
-
-    normalized_required_role = required_role.upper()
-
-    def role_checker(
-        current_user: User = Depends(get_current_user),
+    async def role_dependency(
+            current_user: User = Depends(get_current_user),
+            db: Session = Depends(get_db)
     ) -> User:
+        user_roles = [ur.role.name for ur in current_user.user_roles]
 
-        user_roles = {
-            role.name.upper()
-            for role in current_user.roles
-        }
-
-        if normalized_required_role not in user_roles:
+        if role_name not in user_roles and not current_user.is_superuser:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    f"{normalized_required_role} role required"
-                ),
+                detail=f"Role '{role_name}' required"
             )
 
         return current_user
 
-    return role_checker
+    return role_dependency
+
+
+async def require_permission(
+        resource: str,
+        action: str
+):
+    """Create a dependency that requires a specific permission"""
+
+    async def permission_dependency(
+            current_user: User = Depends(get_current_user),
+            db: Session = Depends(get_db)
+    ) -> User:
+        permission_service = PermissionService(db)
+        has_permission = permission_service.check_permission(
+            current_user.id, resource, action
+        )
+
+        if not has_permission and not current_user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permission required: {resource}:{action}"
+            )
+
+        return current_user
+
+    return permission_dependency
+
+
+def get_current_user_optional(
+        credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+        db: Session = Depends(get_db)
+) -> Optional[User]:
+    """Get current user if authenticated, otherwise None"""
+    if not credentials:
+        return None
+
+    try:
+        return get_current_user(credentials, db)
+    except HTTPException:
+        return None

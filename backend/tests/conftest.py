@@ -244,3 +244,7 @@ def assert_conflict():
         )
 
     return _assert
+
+
+def OTHER_USER_ID():
+    return 17

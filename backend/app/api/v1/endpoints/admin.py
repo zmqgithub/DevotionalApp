@@ -2,15 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.v1.dependencies import (
-    get_current_user,
     require_role,
 )
-from app.core.database import get_db
-from app.models.user import User
-from app.models.role import Role
-from app.models.user_role import UserRole
+from app.db.session import get_db
+from app.modules.users.model import User
+from app.modules.roles.model import Role
+from app.modules.roles.user_role.model import UserRole
 
-from app.schemas.role import (
+from app.modules.roles.schemas import (
     AssignRoleRequest,
     RoleResponse,
 )

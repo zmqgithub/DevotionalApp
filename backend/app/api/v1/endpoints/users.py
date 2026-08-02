@@ -1,418 +1,122 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-
-from app.core.database import get_db
-from app.models.user import User
-
-from app.schemas.user import (
-    ChangePasswordRequest,
-    UserCreate,
-    UserListResponse,
-    UserResponse,
-    UserStatusUpdate,
-    UserUpdate,
-    UserProfileUpdate,
+from app.db.session import get_db
+from app.modules.users.service import UserService
+from app.modules.users.schemas import (
+    UserCreate, UserUpdate, UserResponse, UserProfileResponse
 )
+from app.api.v1.dependencies import get_current_user, get_current_superuser
+from app.modules.users.model import User
+from app.schemas.base import PaginatedResponse, MessageResponse
 
-from app.services.user_service import (
-    create_user,
-    get_user_by_email,
-    get_user_by_id,
-    get_users,
-    update_user,
-    update_user_status,
-    update_my_profile,
-    change_password,
-    soft_delete_user,
-)
-
-from app.api.v1.dependencies import (
-    get_current_user,
-    require_admin,
-    require_any_role,
-)
+router = APIRouter()
 
 
-router = APIRouter(
-    prefix="/users",
-    tags=["Users"],
-)
-
-
-# ============================================================
-# CREATE USER
-# ADMIN ONLY
-# ============================================================
-
-@router.post(
-    "",
-    response_model=UserResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-def create_new_user(
-    user_data: UserCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+@router.get("/me", response_model=UserProfileResponse)
+async def get_current_user_profile(
+        current_user: User = Depends(get_current_user)
 ):
-    """
-    Create a new user.
-
-    Permission:
-        ADMIN only
-    """
-
-    existing_user = get_user_by_email(
-        db,
-        user_data.email,
-    )
-
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="User with this email already exists",
-        )
-
-    return create_user(
-        db,
-        user_data,
-    )
-
-
-# ============================================================
-# GET MY PROFILE
-# ADMIN + MODERATOR + USER
-# ============================================================
-
-@router.get(
-    "/me",
-    response_model=UserResponse,
-)
-def get_my_profile(
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Get the currently authenticated user's own profile.
-
-    Permission:
-        ADMIN
-        MODERATOR
-        USER
-    """
-
+    """Get current user profile"""
     return current_user
 
 
-# ============================================================
-# UPDATE MY PROFILE
-# ADMIN + MODERATOR + USER
-# ============================================================
-
-@router.put(
-    "/me",
-    response_model=UserResponse,
-)
-def update_my_profile_endpoint(
-    data: UserProfileUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+@router.put("/me", response_model=UserResponse)
+async def update_current_user(
+        user_update: UserUpdate,
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
 ):
-    """
-    Update the currently authenticated user's own profile.
-
-    Permission:
-        ADMIN
-        MODERATOR
-        USER
-    """
-
-    return update_my_profile(
-        db,
-        current_user,
-        data,
-    )
+    """Update current user profile"""
+    service = UserService(db)
+    return service.update(current_user.id, user_update)
 
 
-# ============================================================
-# LIST USERS
-# ADMIN + MODERATOR
-# ============================================================
-
-@router.get(
-    "",
-    response_model=UserListResponse,
-)
-def get_all_users(
-    page: int = Query(
-        1,
-        ge=1,
-    ),
-    page_size: int = Query(
-        20,
-        ge=1,
-        le=100,
-    ),
-    search: str | None = Query(
-        None,
-        description="Search by name or email",
-    ),
-    is_active: bool | None = Query(
-        None,
-    ),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_any_role(
-            "ADMIN",
-            "MODERATOR",
-        )
-    ),
+@router.get("/", response_model=PaginatedResponse[UserResponse])
+async def get_users(
+        skip: int = Query(0, ge=0),
+        limit: int = Query(100, ge=1, le=100),
+        search: Optional[str] = None,
+        current_user: User = Depends(get_current_superuser),
+        db: Session = Depends(get_db)
 ):
-    """
-    List all users.
+    """Get all users (admin only)"""
+    service = UserService(db)
+    users = service.get_active_users(skip=skip, limit=limit, search=search)
+    total = service.count()
 
-    Permission:
-        ADMIN
-        MODERATOR
-    """
-
-    users, total, total_pages = get_users(
-        db=db,
-        page=page,
-        page_size=page_size,
-        search=search,
-        is_active=is_active,
-    )
-
-    return UserListResponse(
+    return PaginatedResponse(
         items=users,
         total=total,
-        page=page,
-        page_size=page_size,
-        total_pages=total_pages,
+        page=skip // limit + 1,
+        size=limit,
+        pages=(total + limit - 1) // limit
     )
 
 
-# ============================================================
-# GET SINGLE USER
-# ADMIN + MODERATOR
-# ============================================================
-
-@router.get(
-    "/{user_id}",
-    response_model=UserResponse,
-)
-def get_single_user(
-    user_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_any_role(
-            "ADMIN",
-            "MODERATOR",
-        )
-    ),
+@router.get("/{user_id}", response_model=UserResponse)
+async def get_user(
+        user_id: int,
+        current_user: User = Depends(get_current_superuser),
+        db: Session = Depends(get_db)
 ):
-    """
-    Get a specific user by ID.
-
-    Permission:
-        ADMIN
-        MODERATOR
-    """
-
-    user = get_user_by_id(
-        db,
-        user_id,
-    )
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
-
-    return user
+    """Get user by ID (admin only)"""
+    service = UserService(db)
+    return service.get_by_id(user_id)
 
 
-# ============================================================
-# UPDATE USER
-# ADMIN ONLY
-# ============================================================
-
-@router.put(
-    "/{user_id}",
-    response_model=UserResponse,
-)
-def update_existing_user(
-    user_id: int,
-    user_data: UserUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+@router.put("/{user_id}", response_model=UserResponse)
+async def update_user(
+        user_id: int,
+        user_update: UserUpdate,
+        current_user: User = Depends(get_current_superuser),
+        db: Session = Depends(get_db)
 ):
-    """
-    Update another user's account.
-
-    Permission:
-        ADMIN only
-    """
-
-    user = get_user_by_id(
-        db,
-        user_id,
-    )
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
-
-    if user_data.email:
-
-        existing_user = get_user_by_email(
-            db,
-            user_data.email,
-        )
-
-        if (
-            existing_user
-            and existing_user.id != user_id
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Email is already used by another user",
-            )
-
-    return update_user(
-        db=db,
-        user_id=user_id,
-        user_data=user_data,
-    )
+    """Update user (admin only)"""
+    service = UserService(db)
+    return service.update(user_id, user_update)
 
 
-# ============================================================
-# DELETE USER
-# ADMIN ONLY
-# ============================================================
-
-@router.delete(
-    "/{user_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-def delete_existing_user(
-    user_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+@router.delete("/{user_id}", response_model=MessageResponse)
+async def delete_user(
+        user_id: int,
+        current_user: User = Depends(get_current_superuser),
+        db: Session = Depends(get_db)
 ):
-    """
-    Soft delete a user.
-
-    Permission:
-        ADMIN only
-    """
-
-    user = get_user_by_id(
-        db,
-        user_id,
-    )
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
-
-    soft_delete_user(
-        db,
-        user,
-    )
-
-    return None
+    """Delete user (admin only)"""
+    service = UserService(db)
+    service.delete(user_id)
+    return MessageResponse(message="User deleted successfully")
 
 
-# ============================================================
-# CHANGE USER PASSWORD
-# ADMIN ONLY
-# ============================================================
-
-@router.put(
-    "/{user_id}/password",
-)
-def change_user_password(
-    user_id: int,
-    password_data: ChangePasswordRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+@router.post("/{user_id}/activate", response_model=UserResponse)
+async def activate_user(
+        user_id: int,
+        current_user: User = Depends(get_current_superuser),
+        db: Session = Depends(get_db)
 ):
-    """
-    Change another user's password.
-
-    Permission:
-        ADMIN only
-    """
-
-    user = get_user_by_id(
-        db,
-        user_id,
-    )
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
-
-    try:
-        change_password(
-            db,
-            user,
-            password_data,
-        )
-
-    except ValueError as error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(error),
-        )
-
-    return {
-        "message": "Password changed successfully",
-    }
+    """Activate user (admin only)"""
+    service = UserService(db)
+    return service.activate_user(user_id)
 
 
-# ============================================================
-# CHANGE USER STATUS
-# ADMIN ONLY
-# ============================================================
-
-@router.patch(
-    "/{user_id}/status",
-    response_model=UserResponse,
-)
-def change_user_status(
-    user_id: int,
-    status_data: UserStatusUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+@router.post("/{user_id}/deactivate", response_model=UserResponse)
+async def deactivate_user(
+        user_id: int,
+        current_user: User = Depends(get_current_superuser),
+        db: Session = Depends(get_db)
 ):
-    """
-    Activate or deactivate a user.
+    """Deactivate user (admin only)"""
+    service = UserService(db)
+    return service.deactivate_user(user_id)
 
-    Permission:
-        ADMIN only
-    """
 
-    user = get_user_by_id(
-        db,
-        user_id,
-    )
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
-
-    return update_user_status(
-        db,
-        user,
-        status_data.is_active,
-    )
+@router.post("/{user_id}/verify", response_model=UserResponse)
+async def verify_user(
+        user_id: int,
+        current_user: User = Depends(get_current_superuser),
+        db: Session = Depends(get_db)
+):
+    """Verify user email (admin only)"""
+    service = UserService(db)
+    return service.verify_user(user_id)

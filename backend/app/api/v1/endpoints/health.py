@@ -1,30 +1,24 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+from app.db.session import get_db
 from sqlalchemy import text
 
-from app.core.database import engine
+router = APIRouter()
 
-
-router = APIRouter(
-    prefix="/health",
-    tags=["Health"],
-)
-
-
-@router.get("")
-def health_check():
-
-    database = 0
-
-    try:
-        with engine.connect() as connection:
-            connection.execute(text("SELECT 1"))
-
-        database = 1
-
-    except Exception:
-        database = 0
-
+@router.get("/")
+async def health_check():
+    """Health check endpoint"""
     return {
         "status": "healthy",
-        "database": database,
+        "service": "DevotionalApp API",
+        "version": "1.0.0"
     }
+
+@router.get("/db")
+async def db_health_check(db: Session = Depends(get_db)):
+    """Database health check"""
+    try:
+        db.execute(text("SELECT 1"))
+        return {"status": "healthy", "database": "connected"}
+    except Exception as e:
+        return {"status": "unhealthy", "database": "disconnected", "error": str(e)}

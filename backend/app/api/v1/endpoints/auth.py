@@ -1,195 +1,114 @@
+# app/api/v1/endpoints/auth.py
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-
-from app.core.database import get_db
-from app.core.security import (
-    create_access_token,
-    create_refresh_token,
-    decode_token,
-)
-
-from app.models.user import User
-
+from app.db.session import get_db
+from app.modules.users.service import UserService
+from app.modules.users.schemas import UserCreate, UserResponse
 from app.schemas.auth import (
-    TokenResponse,
-    RefreshTokenRequest,
+    LoginRequest, RegisterRequest, TokenResponse,
+    RefreshTokenRequest, ChangePasswordRequest
 )
-
-from app.schemas.user import UserResponse
-
+from app.core.security import create_access_token, create_refresh_token, verify_refresh_token
 from app.api.v1.dependencies import get_current_user
+from app.modules.users.model import User
+
+router = APIRouter()
 
 
-router = APIRouter(
-    prefix="/auth",
-    tags=["Authentication"],
-)
-
-
-# ============================================================
-# LOGIN
-# ============================================================
-
-@router.post(
-    "/login",
-    response_model=TokenResponse,
-)
-def login(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db),
+@router.post("/login", response_model=TokenResponse)
+async def login(
+        login_data: LoginRequest,
+        db: Session = Depends(get_db)
 ):
+    """Login user"""
+    service = UserService(db)
+    user = service.authenticate(login_data.username, login_data.password)
 
-    user = (
-        db.query(User)
-        .filter(
-            User.email == form_data.username,
-            User.is_deleted.is_(False),
-        )
-        .first()
-    )
-
-    if not user:
-
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
-            headers={
-                "WWW-Authenticate": "Bearer"
-            },
-        )
-
-    # Verify password
-    from app.core.security import verify_password
-
-    if not verify_password(
-        form_data.password,
-        user.password_hash,
-    ):
-
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
-            headers={
-                "WWW-Authenticate": "Bearer"
-            },
-        )
-
-    # Check active status
-    if not user.is_active:
-
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is inactive",
-        )
-
-    # Create tokens
-    access_token = create_access_token(
-        subject=user.id
-    )
-
-    refresh_token = create_refresh_token(
-        subject=user.id
-    )
+    access_token = create_access_token(user.id)
+    refresh_token = create_refresh_token(user.id)
 
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
         token_type="bearer",
+        expires_in=3600  # 1 hour
     )
 
 
-# ============================================================
-# REFRESH TOKEN
-# ============================================================
-
-@router.post(
-    "/refresh",
-    response_model=TokenResponse,
-)
-def refresh_token(
-    request: RefreshTokenRequest,
-    db: Session = Depends(get_db),
+@router.post("/register", response_model=UserResponse)
+async def register(
+        register_data: RegisterRequest,
+        db: Session = Depends(get_db)
 ):
+    """Register new user"""
+    service = UserService(db)
+    user_data = UserCreate(
+        email=register_data.email,
+        username=register_data.username,
+        full_name=register_data.full_name,
+        password=register_data.password
+    )
+    return service.register(user_data)
 
-    try:
 
-        payload = decode_token(
-            request.refresh_token
-        )
-
-        user_id = payload.get("sub")
-        token_type = payload.get("type")
-
-        if not user_id:
-            raise ValueError()
-
-        if token_type != "refresh":
-            raise ValueError()
-
-        user_id = int(user_id)
-
-    except (ValueError, TypeError):
-
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_token(
+        refresh_data: RefreshTokenRequest,
+        db: Session = Depends(get_db)
+):
+    """Refresh access token"""
+    payload = verify_refresh_token(refresh_data.refresh_token)
+    if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired refresh token",
-            headers={
-                "WWW-Authenticate": "Bearer"
-            },
+            detail="Invalid refresh token"
         )
 
-    # Get user
-    user = (
-        db.query(User)
-        .filter(
-            User.id == user_id,
-            User.is_deleted.is_(False),
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token"
         )
-        .first()
-    )
 
+    service = UserService(db)
+    user = service.get_by_id(int(user_id))
     if not user:
-
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found",
+            detail="User not found"
         )
 
-    if not user.is_active:
-
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is inactive",
-        )
-
-    # Generate new tokens
-    new_access_token = create_access_token(
-        subject=user.id
-    )
-
-    new_refresh_token = create_refresh_token(
-        subject=user.id
-    )
+    access_token = create_access_token(user.id)
+    refresh_token = create_refresh_token(user.id)
 
     return TokenResponse(
-        access_token=new_access_token,
-        refresh_token=new_refresh_token,
+        access_token=access_token,
+        refresh_token=refresh_token,
         token_type="bearer",
+        expires_in=3600
     )
 
 
-# ============================================================
-# CURRENT USER
-# ============================================================
-
-@router.get(
-    "/me",
-    response_model=UserResponse,
-)
-def get_me(
-    current_user: User = Depends(get_current_user),
+@router.post("/logout")
+async def logout(
+        current_user: User = Depends(get_current_user)
 ):
+    """Logout user"""
+    return {"message": "Logged out successfully"}
 
-    return current_user
 
+@router.post("/change-password")
+async def change_password(
+        password_data: ChangePasswordRequest,
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+):
+    """Change user password"""
+    service = UserService(db)
+    service.change_password(
+        current_user.id,
+        password_data.current_password,
+        password_data.new_password
+    )
+    return {"message": "Password changed successfully"}
