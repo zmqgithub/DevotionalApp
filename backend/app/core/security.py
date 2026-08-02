@@ -2,30 +2,42 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from jose import JWTError, jwt
 import bcrypt
-from passlib.context import CryptContext
 from fastapi import HTTPException, status
 from app.core.config import settings
 
-# Password hashing with passlib (which handles bcrypt internally)
-pwd_context = CryptContext(
-    schemes=["bcrypt"],
-    deprecated="auto",
-)
-
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a plain password against a hashed password using passlib"""
+    """Verify a plain password against a hashed password using bcrypt"""
     try:
-        return pwd_context.verify(plain_password, hashed_password)
+        # Ensure both are bytes
+        if isinstance(plain_password, str):
+            plain_password = plain_password.encode('utf-8')
+        if isinstance(hashed_password, str):
+            hashed_password = hashed_password.encode('utf-8')
+
+        return bcrypt.checkpw(plain_password, hashed_password)
     except Exception as e:
         print(f"Password verification error: {e}")
         return False
 
 
 def get_password_hash(password: str) -> str:
-    """Hash a password using passlib with bcrypt"""
+    """Hash a password using bcrypt"""
     try:
-        return pwd_context.hash(password)
+        # Ensure password is bytes
+        if isinstance(password, str):
+            password = password.encode('utf-8')
+
+        # Truncate to 72 bytes if needed (bcrypt limitation)
+        if len(password) > 72:
+            password = password[:72]
+
+        # Generate salt and hash
+        salt = bcrypt.gensalt()
+        hashed = bcrypt.hashpw(password, salt)
+
+        # Return as string
+        return hashed.decode('utf-8')
     except Exception as e:
         print(f"Password hashing error: {e}")
         raise ValueError(f"Failed to hash password: {str(e)}")
@@ -171,16 +183,3 @@ def generate_api_key() -> str:
     """Generate a secure API key"""
     import secrets
     return secrets.token_urlsafe(32)
-
-
-def hash_api_key(api_key: str) -> str:
-    """Hash an API key using passlib"""
-    return pwd_context.hash(api_key)
-
-
-def verify_api_key(plain_api_key: str, hashed_api_key: str) -> bool:
-    """Verify an API key"""
-    try:
-        return pwd_context.verify(plain_api_key, hashed_api_key)
-    except Exception:
-        return False

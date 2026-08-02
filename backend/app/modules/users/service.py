@@ -15,7 +15,7 @@ class UserService(BaseService[User, UserCreate, UserUpdate]):
         self.repository = UserRepository(db)
         super().__init__(self.repository)
 
-    def authenticate(self, username: str, password: str) -> Optional[User]:
+    def authenticate(self, username: str, password: str) -> User:
         """Authenticate a user"""
         user = self.repository.get_by_email_or_username(username, username)
         if not user:
@@ -35,11 +35,13 @@ class UserService(BaseService[User, UserCreate, UserUpdate]):
     def register(self, user_data: UserCreate) -> User:
         """Register a new user"""
         # Check if user exists
-        if self.repository.get_by_email(user_data.email):
-            raise DuplicateError(f"User with email {user_data.email} already exists")
+        existing_user = self.repository.get_by_email(user_data.email)
+        if existing_user:
+            raise DuplicateError(f"User with email '{user_data.email}' already exists")
 
-        if self.repository.get_by_username(user_data.username):
-            raise DuplicateError(f"User with username {user_data.username} already exists")
+        existing_username = self.repository.get_by_username(user_data.username)
+        if existing_username:
+            raise DuplicateError(f"Username '{user_data.username}' is already taken")
 
         return self.create(user_data)
 
@@ -136,12 +138,8 @@ class UserService(BaseService[User, UserCreate, UserUpdate]):
             raise ValidationError("Password must contain at least one number")
 
     def _check_duplicate_on_create(self, obj_in: UserCreate) -> None:
-        """Check for duplicate user"""
-        if self.repository.get_by_email(obj_in.email):
-            raise DuplicateError(f"User with email {obj_in.email} already exists")
-
-        if self.repository.get_by_username(obj_in.username):
-            raise DuplicateError(f"User with username {obj_in.username} already exists")
+        """Check for duplicate user - handled in register method"""
+        pass
 
     def _validate_delete(self, id: int) -> None:
         """Validate user deletion"""

@@ -4,6 +4,7 @@ from sqlalchemy import or_, and_
 from app.repositories.base import BaseRepository
 from app.modules.users.model import User
 from app.modules.users.schemas import UserCreate, UserUpdate
+from app.core.security import get_password_hash
 
 
 class UserRepository(BaseRepository[User, UserCreate, UserUpdate]):
@@ -11,6 +12,23 @@ class UserRepository(BaseRepository[User, UserCreate, UserUpdate]):
 
     def __init__(self, db: Session):
         super().__init__(db, User)
+
+    def create(self, obj_in: UserCreate) -> User:
+        """Create a new user with password hashing"""
+        obj_data = obj_in.model_dump()
+
+        # Hash the password
+        password = obj_data.pop('password', None)
+        if password:
+            obj_data['password_hash'] = get_password_hash(password)
+        else:
+            obj_data['password_hash'] = ''
+
+        db_obj = self.model(**obj_data)
+        self.db.add(db_obj)
+        self.db.commit()
+        self.db.refresh(db_obj)
+        return db_obj
 
     def get_by_email(self, email: str) -> Optional[User]:
         """Get user by email"""

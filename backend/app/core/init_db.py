@@ -1,11 +1,22 @@
-from app.db.session import Base, engine
-from app.modules.users.model import  User
+# app/core/__init__.py
+from app.core.config import settings
+from app.core.security import (
+    verify_password,
+    get_password_hash,
+    create_access_token,
+    create_refresh_token,
+    verify_token,
+    verify_access_token,
+    verify_refresh_token
+)
 
-
-def init_db():
-    Base.metadata.create_all(bind=engine)
-
-
-if __name__ == "__main__":
-    init_db()
-    print("Database tables created successfully.")
+__all__ = [
+    "settings",
+    "verify_password",
+    "get_password_hash",
+    "create_access_token",
+    "create_refresh_token",
+    "verify_token",
+    "verify_access_token",
+    "verify_refresh_token"
+]
